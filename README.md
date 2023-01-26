@@ -4,4 +4,4 @@ Copyright (c) 2023 The Blosc Developers <blosc@blosc.org>
 
 License: Affero GPL
 
-See COPYING.txt for details about copyright and rights to use.
+See LICENSE for details about copyright and rights to use.
