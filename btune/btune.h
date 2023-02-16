@@ -283,7 +283,7 @@ typedef struct {
  * @param cctx The compression context where BTune tunes the compression parameters. It <b>can not</b> be NULL.
  * @param dctx If not NULL, BTune will modify the number of threads for decompression inside this context.
 */
-void btune_init(btune_config * config, blosc2_context* cctx, blosc2_context* dctx);
+void btune_init(void * config, blosc2_context* cctx, blosc2_context* dctx);
 
 void btune_free(blosc2_context* context);
 

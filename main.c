@@ -44,9 +44,22 @@ int main(int argc, char* argv[])
         return 1;
     }
 
-    // Create super chunk
+    // compression params
     blosc2_cparams cparams = BLOSC2_CPARAMS_DEFAULTS;
     cparams.blocksize = BLOCKSIZE; // If unset there's a division by zero crash
+
+    // btune
+    blosc2_btune *btune = malloc(sizeof(blosc2_btune));
+    btune_config btune_config = BTUNE_CONFIG_DEFAULTS;
+    btune->btune_config = &btune_config;
+    btune->btune_init = btune_init;
+    btune->btune_next_blocksize = btune_next_blocksize;
+    btune->btune_next_cparams = btune_next_cparams;
+    btune->btune_update = btune_update;
+    btune->btune_free = btune_free;
+    cparams.udbtune = btune;
+
+    // Create super chunk
     blosc2_dparams dparams = BLOSC2_DPARAMS_DEFAULTS;
     blosc2_storage storage = {
         .cparams=&cparams,
@@ -55,10 +68,6 @@ int main(int argc, char* argv[])
         .urlpath=(char*)out_fname
     };
     blosc2_schunk* schunk = blosc2_schunk_new(&storage);
-
-    // BTune
-    btune_config config = BTUNE_CONFIG_DEFAULTS;
-    btune_init(&config, schunk->cctx, schunk->dctx);
 
     // Statistics
     blosc_timestamp_t t0;
@@ -69,7 +78,6 @@ int main(int argc, char* argv[])
     int nchunks = get_nchunks_in_file(finput, CHUNKSIZE);
     for (int nchunk = 0; nchunk < nchunks; nchunk++) {
         size_t size = fread(data, 1, CHUNKSIZE, finput);
-        printf("CHUNK #%d size=%ld\n", nchunk, size);
         if (blosc2_schunk_append_buffer(schunk, data, size) < 0) {
             fprintf(stderr, "Error in appending data to destination file");
             return 1;
