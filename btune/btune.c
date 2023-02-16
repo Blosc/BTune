@@ -288,7 +288,7 @@ const char* repeat_mode_to_str(btune_repeat_mode repeat_mode) {
   }
 }
 
-// Init btune_struc inside blosc2_context
+// Init btune_struct inside blosc2_context
 void btune_init(btune_config * config, blosc2_context * cctx, blosc2_context * dctx) {
   // TODO CHECK CONFIG ENUMS (bandwidth range...)
   btune_struct * btune = calloc(sizeof(btune_struct), 1);
