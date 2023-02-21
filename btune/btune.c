@@ -73,7 +73,7 @@ static codec_list * btune_get_codecs(btune_struct * btune) {
   return codecs;
 }
 
-void add_codec(codec_list * codecs, int compcode) {
+static void add_codec(codec_list * codecs, int compcode) {
   for (int i = 0; i < codecs->size; i++) {
     if (codecs->list[i] == compcode) {
       return;
@@ -84,7 +84,7 @@ void add_codec(codec_list * codecs, int compcode) {
 }
 
 // Extract the cparams_btune inside blosc2_context
-void extract_btune_cparams(blosc2_context * context, cparams_btune * cparams){
+static void extract_btune_cparams(blosc2_context * context, cparams_btune * cparams){
   cparams->compcode = context->compcode;
   cparams->filter = context->filters[BLOSC2_MAX_FILTERS - 1];
   cparams->clevel = context->clevel;
@@ -101,7 +101,7 @@ void extract_btune_cparams(blosc2_context * context, cparams_btune * cparams){
 }
 
 // Check if btune can still modify the clevel or has to change the direction
-bool has_ended_clevel(btune_struct * btune) {
+static bool has_ended_clevel(btune_struct * btune) {
   return ((btune->best->increasing_clevel &&
           (btune->best->clevel >= (MAX_CLEVEL - btune->step_size))) ||
           (!btune->best->increasing_clevel &&
@@ -109,14 +109,14 @@ bool has_ended_clevel(btune_struct * btune) {
 }
 
 // Check if btune can still modify the shufflesize or has to change the direction
-bool has_ended_shuffle(cparams_btune * best) {
+static bool has_ended_shuffle(cparams_btune * best) {
   int min_shuffle = (best->filter == BLOSC_SHUFFLE) ? MIN_SHUFFLE: MIN_BITSHUFFLE;
   return ((best->increasing_shuffle && (best->shufflesize == MAX_SHUFFLE)) ||
           (!best->increasing_shuffle && (best->shufflesize == min_shuffle)));
 }
 
 // Check if btune can still modify the nthreads or has to change the direction
-bool has_ended_threads(btune_struct * btune) {
+static bool has_ended_threads(btune_struct * btune) {
   cparams_btune * best = btune->best;
   int nthreads;
   if (btune->threads_for_comp) {
@@ -129,7 +129,7 @@ bool has_ended_threads(btune_struct * btune) {
 }
 
 // Check if btune can still modify the blocksize or has to change the direction
-bool has_ended_blocksize(blosc2_context * ctx){
+static bool has_ended_blocksize(blosc2_context * ctx){
   btune_struct * btune = (btune_struct*) ctx->btune;
   cparams_btune * best = btune->best;
   return ((best->increasing_block &&
@@ -140,7 +140,7 @@ bool has_ended_blocksize(blosc2_context * ctx){
 }
 
 // Init a soft readapt
-void init_soft(btune_struct * btune) {
+static void init_soft(btune_struct * btune) {
   if (has_ended_clevel(btune)) {
     btune->best->increasing_clevel = !btune->best->increasing_clevel;
   }
@@ -150,7 +150,7 @@ void init_soft(btune_struct * btune) {
 }
 
 // Init a hard readapt
-void init_hard(btune_struct * btune) {
+static void init_hard(btune_struct * btune) {
   btune->state = CODEC_FILTER;
   btune->step_size = HARD_STEP_SIZE;
   btune->readapt_from = HARD;
@@ -165,7 +165,7 @@ void init_hard(btune_struct * btune) {
 }
 
 // Init when the number of hard is 0
-void init_without_hards(blosc2_context * ctx) {
+static void init_without_hards(blosc2_context * ctx) {
   btune_struct * btune = (btune_struct*) ctx->btune;
   btune_behaviour behaviour = btune->config.behaviour;
   int minimum_hards = 0;
@@ -197,7 +197,7 @@ void init_without_hards(blosc2_context * ctx) {
   btune->is_repeating = true;
 }
 
-const char* stcode_to_stname(btune_struct * btune) {
+static const char* stcode_to_stname(btune_struct * btune) {
   switch (btune->state) {
     case CODEC_FILTER:
       return "CODEC_FILTER";
@@ -224,7 +224,7 @@ const char* stcode_to_stname(btune_struct * btune) {
   }
 }
 
-const char* readapt_to_str(readapt_type readapt) {
+static const char* readapt_to_str(readapt_type readapt) {
   switch (readapt) {
     case HARD:
       return "HARD";
@@ -237,7 +237,7 @@ const char* readapt_to_str(readapt_type readapt) {
   }
 }
 
-const char* perf_mode_to_str(btune_performance_mode perf_mode) {
+static const char* perf_mode_to_str(btune_performance_mode perf_mode) {
   switch (perf_mode) {
     case BTUNE_PERF_DECOMP:
       return "DECOMP";
@@ -250,7 +250,7 @@ const char* perf_mode_to_str(btune_performance_mode perf_mode) {
   }
 }
 
-const char* comp_mode_to_str(btune_comp_mode comp_mode) {
+static const char* comp_mode_to_str(btune_comp_mode comp_mode) {
   switch (comp_mode) {
     case BTUNE_COMP_HSP:
       return "HSP";
@@ -263,7 +263,7 @@ const char* comp_mode_to_str(btune_comp_mode comp_mode) {
   }
 }
 
-void bandwidth_to_str(char * str, uint32_t bandwidth) {
+static void bandwidth_to_str(char * str, uint32_t bandwidth) {
   if (bandwidth < BTUNE_MBPS) {
     sprintf(str, "%d KB/s", bandwidth);
   } else if (bandwidth < BTUNE_GBPS) {
@@ -275,7 +275,7 @@ void bandwidth_to_str(char * str, uint32_t bandwidth) {
   }
 }
 
-const char* repeat_mode_to_str(btune_repeat_mode repeat_mode) {
+static const char* repeat_mode_to_str(btune_repeat_mode repeat_mode) {
   switch (repeat_mode) {
     case BTUNE_REPEAT_ALL:
       return "REPEAT_ALL";
@@ -569,23 +569,18 @@ void btune_next_cparams(blosc2_context *context) {
   btune_struct * btune = (btune_struct*) context->btune;
   *btune->aux_cparams = *btune->best;
   cparams_btune * cparams = btune->aux_cparams;
-  int codec_index;
-  int filter_split;
-  int compcode;
-  uint8_t filter;
-  int splitmode;
 
   switch(btune->state){
 
     // Tune codec and filter
     case CODEC_FILTER:
-      codec_index = btune->aux_index / btune->filter_split_limit;
-      compcode = btune->codecs->list[codec_index];
-      filter_split = btune->filter_split_limit;
+      int codec_index = btune->aux_index / btune->filter_split_limit;
+      int compcode = btune->codecs->list[codec_index];
+      int filter_split = btune->filter_split_limit;
       // Cycle filters every time
-      filter = (uint8_t) ((btune->aux_index % (filter_split / 2)) / REPEATS_PER_CPARAMS);
+      uint8_t filter = (uint8_t) ((btune->aux_index % (filter_split / 2)) / REPEATS_PER_CPARAMS);
       // Cycle split every two filters
-      splitmode = (((btune->aux_index % filter_split) / 3) + 1) / REPEATS_PER_CPARAMS;
+      int splitmode = (((btune->aux_index % filter_split) / 3) + 1) / REPEATS_PER_CPARAMS;
       if (compcode == BLOSC_BLOSCLZ) {
           // BLOSCLZ is not designed to compress well in non-split mode, so disable it always
           splitmode = BLOSC_ALWAYS_SPLIT;
@@ -702,8 +697,8 @@ void btune_next_cparams(blosc2_context *context) {
 }
 
 // Computes the score depending on the perf_mode
-double score_function(btune_struct * btune, double ctime, size_t cbytes,
-                      double dtime) {
+static double score_function(btune_struct * btune, double ctime, size_t cbytes,
+                             double dtime) {
   double reduced_cbytes = (double)cbytes / (double) BTUNE_KB;
   switch (btune->config.perf_mode) {
     case BTUNE_PERF_COMP:
@@ -718,7 +713,7 @@ double score_function(btune_struct * btune, double ctime, size_t cbytes,
   }
 }
 
-double mean(double const * array, int size) {
+static double mean(double const * array, int size) {
   double sum = 0;
   for (int i = 0; i < size; i++) {
     sum += array[i];
@@ -727,7 +722,7 @@ double mean(double const * array, int size) {
 }
 
 // Determines if btune has improved depending on the comp_mode
-bool has_improved(btune_struct * btune, double score_coef, double cratio_coef) {
+static bool has_improved(btune_struct * btune, double score_coef, double cratio_coef) {
   btune_comp_mode comp_mode = btune->config.comp_mode;
   switch (comp_mode) {
     case BTUNE_COMP_HSP:
@@ -749,7 +744,7 @@ bool has_improved(btune_struct * btune, double score_coef, double cratio_coef) {
 }
 
 
-bool cparams_equals(cparams_btune * cp1, cparams_btune * cp2) {
+static bool cparams_equals(cparams_btune * cp1, cparams_btune * cp2) {
   return ((cp1->compcode == cp2->compcode) &&
           (cp1->filter == cp2->filter) &&
           (cp1->splitmode == cp2->splitmode) &&
@@ -762,7 +757,7 @@ bool cparams_equals(cparams_btune * cp1, cparams_btune * cp2) {
 
 
 // Processes which btune_state will come next after a readapt or wait
-void process_waiting_state(blosc2_context * ctx) {
+static void process_waiting_state(blosc2_context * ctx) {
   btune_struct * btune = (btune_struct*) ctx->btune;
   btune_behaviour behaviour = btune->config.behaviour;
   uint32_t minimum_hards = 0;
@@ -878,7 +873,7 @@ void process_waiting_state(blosc2_context * ctx) {
 }
 
 // State transition handling
-void update_aux(blosc2_context * ctx, bool improved) {
+static void update_aux(blosc2_context * ctx, bool improved) {
   btune_struct * btune = ctx->btune;
   cparams_btune * best = btune->best;
   bool first_time = btune->aux_index == REPEATS_PER_CPARAMS;

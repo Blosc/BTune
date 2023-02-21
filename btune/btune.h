@@ -293,6 +293,4 @@ void btune_update(blosc2_context* context, double ctime);
 
 void btune_next_blocksize(blosc2_context *context);
 
-const char * stcode_to_stname(btune_struct * btune);
-
 #endif  /* BTUNE_H */
