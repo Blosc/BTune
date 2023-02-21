@@ -691,7 +691,7 @@ void btune_next_cparams(blosc2_context *context) {
 
     // Stopped
     case STOP:
-      break;
+      return;
   }
   set_btune_cparams(context, cparams);
 }
