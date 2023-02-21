@@ -1034,98 +1034,100 @@ static void update_aux(blosc2_context * ctx, bool improved) {
 // Update btune structs with the compression results
 void btune_update(blosc2_context * context, double ctime) {
   btune_struct * btune = (btune_struct*)(context->btune);
-  if (btune->state != STOP) {
-    btune->steps_count++;
-    cparams_btune * cparams = btune->aux_cparams;
+  if (btune->state == STOP) {
+    return;
+  }
 
-    // We come from blosc_compress_context(), so we can populate metrics now
-    size_t cbytes = context->destsize;
-    double dtime = 0;
+  btune->steps_count++;
+  cparams_btune * cparams = btune->aux_cparams;
 
-    // When the source is NULL (eval with prefilters), decompression is not working.
-    // Disabling this part for the time being.
-//    // Compute the decompression time if needed
-//    btune_behaviour behaviour = btune->config.behaviour;
-//    if (!((btune->state == WAITING) &&
-//        ((behaviour.nwaits_before_readapt == 0) ||
-//        (btune->nwaitings % behaviour.nwaits_before_readapt != 0))) &&
-//        ((btune->config.perf_mode == BTUNE_PERF_DECOMP) ||
-//        (btune->config.perf_mode == BTUNE_PERF_BALANCED))) {
-//      blosc2_context * dctx;
-//      if (btune->dctx == NULL) {
-//        blosc2_dparams params = { btune->nthreads_decomp, NULL, NULL, NULL};
-//        dctx = blosc2_create_dctx(params);
-//      } else {
-//        dctx = btune->dctx;
-//      }
-//      blosc_set_timestamp(&last);
-//      blosc2_decompress_ctx(dctx, context->dest, context->destsize, (void*)(context->src),
-//                            context->sourcesize);
-//      blosc_set_timestamp(&current);
-//      dtime = blosc_elapsed_secs(last, current);
-//      if (btune->dctx == NULL) {
-//        blosc2_free_ctx(dctx);
-//      }
+  // We come from blosc_compress_context(), so we can populate metrics now
+  size_t cbytes = context->destsize;
+  double dtime = 0;
+
+  // When the source is NULL (eval with prefilters), decompression is not working.
+  // Disabling this part for the time being.
+//  // Compute the decompression time if needed
+//  btune_behaviour behaviour = btune->config.behaviour;
+//  if (!((btune->state == WAITING) &&
+//      ((behaviour.nwaits_before_readapt == 0) ||
+//      (btune->nwaitings % behaviour.nwaits_before_readapt != 0))) &&
+//      ((btune->config.perf_mode == BTUNE_PERF_DECOMP) ||
+//      (btune->config.perf_mode == BTUNE_PERF_BALANCED))) {
+//    blosc2_context * dctx;
+//    if (btune->dctx == NULL) {
+//      blosc2_dparams params = { btune->nthreads_decomp, NULL, NULL, NULL};
+//      dctx = blosc2_create_dctx(params);
+//    } else {
+//      dctx = btune->dctx;
 //    }
+//    blosc_set_timestamp(&last);
+//    blosc2_decompress_ctx(dctx, context->dest, context->destsize, (void*)(context->src),
+//                          context->sourcesize);
+//    blosc_set_timestamp(&current);
+//    dtime = blosc_elapsed_secs(last, current);
+//    if (btune->dctx == NULL) {
+//      blosc2_free_ctx(dctx);
+//    }
+//  }
 
-    double score = score_function(btune, ctime, cbytes, dtime);
-    assert(score > 0);
-    double cratio = (double) context->sourcesize / (double) cbytes;
+  double score = score_function(btune, ctime, cbytes, dtime);
+  assert(score > 0);
+  double cratio = (double) context->sourcesize / (double) cbytes;
 
-    cparams->score = score;
-    cparams->cratio = cratio;
-    cparams->ctime = ctime;
-    cparams->dtime = dtime;
-    btune->current_scores[btune->rep_index] = score;
-    btune->current_cratios[btune->rep_index] = cratio;
-    btune->rep_index++;
-    if (btune->rep_index == REPEATS_PER_CPARAMS) {
-      score = mean(btune->current_scores, REPEATS_PER_CPARAMS);
-      cratio = mean(btune->current_cratios, REPEATS_PER_CPARAMS);
-      double cratio_coef = cratio / btune->best->cratio;
-      double score_coef = btune->best->score / score;
-      bool improved;
-      // In state THREADS the improvement comes from ctime or dtime
-      if (btune->state == THREADS) {
-        if (btune->threads_for_comp) {
-          improved = ctime < btune->best->ctime;
-        } else {
-          improved = dtime < btune->best->dtime;
-        }
+  cparams->score = score;
+  cparams->cratio = cratio;
+  cparams->ctime = ctime;
+  cparams->dtime = dtime;
+  btune->current_scores[btune->rep_index] = score;
+  btune->current_cratios[btune->rep_index] = cratio;
+  btune->rep_index++;
+  if (btune->rep_index == REPEATS_PER_CPARAMS) {
+    score = mean(btune->current_scores, REPEATS_PER_CPARAMS);
+    cratio = mean(btune->current_cratios, REPEATS_PER_CPARAMS);
+    double cratio_coef = cratio / btune->best->cratio;
+    double score_coef = btune->best->score / score;
+    bool improved;
+    // In state THREADS the improvement comes from ctime or dtime
+    if (btune->state == THREADS) {
+      if (btune->threads_for_comp) {
+        improved = ctime < btune->best->ctime;
       } else {
-        improved = has_improved(btune, score_coef, cratio_coef);
+        improved = dtime < btune->best->dtime;
       }
-      char winner = '-';
-      // If the chunk is made of special values, it cannot never improve scoring
-      if (cbytes <= (BLOSC2_MAX_OVERHEAD + (size_t)context->typesize)) {
-        improved = false;
-        winner = 'S';
-      }
-      if (improved) {
-        winner = 'W';
-      }
-
-      if (!btune->is_repeating) {
-        char* envvar = getenv("BTUNE_LOG");
-        if (envvar != NULL) {
-          int split = (cparams->splitmode == BLOSC_ALWAYS_SPLIT) ? 1 : 0;
-          const char *compname;
-          blosc2_compcode_to_compname(cparams->compcode, &compname);
-          printf("| %10s | %6d | %5d | %7d | %9d | %11d | %9d | %9d | %9.3g | %9.3gx | %15s | %7s | %c\n",
-                 compname, cparams->filter, split, cparams->clevel,
-                 (int) cparams->blocksize / BTUNE_KB, (int) cparams->shufflesize,
-                 cparams->nthreads_comp, cparams->nthreads_decomp,
-                 score, cratio, stcode_to_stname(btune), readapt_to_str(btune->readapt_from), winner);
-        }
-      }
-
-      // if (improved || cparams_equals(btune->best, cparams)) {
-      // We don't want to get rid of the previous best->score
-      if (improved) {
-        *btune->best = *cparams;
-      }
-      btune->rep_index = 0;
-      update_aux(context, improved);
+    } else {
+      improved = has_improved(btune, score_coef, cratio_coef);
     }
+    char winner = '-';
+    // If the chunk is made of special values, it cannot never improve scoring
+    if (cbytes <= (BLOSC2_MAX_OVERHEAD + (size_t)context->typesize)) {
+      improved = false;
+      winner = 'S';
+    }
+    if (improved) {
+      winner = 'W';
+    }
+
+    if (!btune->is_repeating) {
+      char* envvar = getenv("BTUNE_LOG");
+      if (envvar != NULL) {
+        int split = (cparams->splitmode == BLOSC_ALWAYS_SPLIT) ? 1 : 0;
+        const char *compname;
+        blosc2_compcode_to_compname(cparams->compcode, &compname);
+        printf("| %10s | %6d | %5d | %7d | %9d | %11d | %9d | %9d | %9.3g | %9.3gx | %15s | %7s | %c\n",
+               compname, cparams->filter, split, cparams->clevel,
+               (int) cparams->blocksize / BTUNE_KB, (int) cparams->shufflesize,
+               cparams->nthreads_comp, cparams->nthreads_decomp,
+               score, cratio, stcode_to_stname(btune), readapt_to_str(btune->readapt_from), winner);
+      }
+    }
+
+    // if (improved || cparams_equals(btune->best, cparams)) {
+    // We don't want to get rid of the previous best->score
+    if (improved) {
+      *btune->best = *cparams;
+    }
+    btune->rep_index = 0;
+    update_aux(context, improved);
   }
 }
