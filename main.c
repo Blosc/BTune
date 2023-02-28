@@ -35,7 +35,6 @@ int main(int argc, char* argv[])
     }
     const char* in_fname = argv[1];
     const char* out_fname = argv[2];
-    remove(out_fname);
 
     // Open input file
     FILE* finput = fopen(in_fname, "rb");
@@ -51,6 +50,8 @@ int main(int argc, char* argv[])
     // btune
     blosc2_btune *btune = malloc(sizeof(blosc2_btune));
     btune_config btune_config = BTUNE_CONFIG_DEFAULTS;
+    //btune_config.comp_mode = BTUNE_COMP_HCR;
+    //btune_config.behaviour.repeat_mode = BTUNE_REPEAT_ALL;
     btune->btune_config = &btune_config;
     btune->btune_init = btune_init;
     btune->btune_next_blocksize = btune_next_blocksize;
@@ -60,6 +61,7 @@ int main(int argc, char* argv[])
     cparams.udbtune = btune;
 
     // Create super chunk
+    remove(out_fname);
     blosc2_dparams dparams = BLOSC2_DPARAMS_DEFAULTS;
     blosc2_storage storage = {
         .cparams=&cparams,

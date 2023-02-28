@@ -26,6 +26,14 @@
 #define BTUNE_VERSION_MINOR    0    /* for minor interface/format changes  */
 #define BTUNE_VERSION_RELEASE  0    /* for tweaks, bug-fixes, or development */
 #define BTUNE_VERSION_STRING "1.0.0"
+
+#define BTUNE_DEBUG(msg, ...) \
+    do { \
+         const char *__e = getenv("BTUNE_DEBUG"); \
+         if (!__e) { break; } \
+         fprintf(stderr, "[DEBUG] " msg "\n", ##__VA_ARGS__); \
+       } while(0)
+
 /**
  * @brief BTune units enumeration.
  *

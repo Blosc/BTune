@@ -12,7 +12,9 @@
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>
+
 #include "btune.h"
+#include "btune_model.h"
 
 
 // Disable shufflesize and blocksize
@@ -26,6 +28,8 @@
 enum {
   BTUNE_KB = 1024,
   MAX_CODECS = 8, // TODO remove when is included in blosc.h
+  NUM_FILTERS = 3, // nofilter, shuffle and bitshuffle
+  NUM_SPLITS = 2, // split and nosplit
   REPEATS_PER_CPARAMS = 1,  // number of repetitions to compute time averages
   MAX_CLEVEL = 9,
   MIN_BLOCK = 16 * BTUNE_KB,  // TODO remove when included in blosc.h
@@ -40,7 +44,8 @@ enum {
 };
 
 static const cparams_btune cparams_btune_default = {
-        BLOSC_LZ4, BLOSC_SHUFFLE, BLOSC_ALWAYS_SPLIT, 9, 0, 0, 0, 0, false, true, true, false, 100, 1.1, 100, 100};
+  BLOSC_LZ4, BLOSC_SHUFFLE, BLOSC_ALWAYS_SPLIT, 9, 0, 0, 0, 0, false, true, true, false, 100, 1.1, 100, 100
+};
 
 // Get the codecs list for btune
 static codec_list * btune_get_codecs(btune_struct * btune) {
@@ -325,7 +330,7 @@ void btune_init(void * cfg, blosc2_context * cctx, blosc2_context * dctx) {
   // State attributes
   btune->rep_index = 0;
   // We want to iterate 3x per filter (NOSHUFFLE/SHUFFLE/BITSHUFFLE) and 2x per split/nonsplit
-  btune->filter_split_limit = 3 * 2 * REPEATS_PER_CPARAMS;
+  btune->filter_split_limit = NUM_FILTERS * NUM_SPLITS * REPEATS_PER_CPARAMS;
   btune->aux_index = 0;
   btune->steps_count = 0;
   btune->nsofts = 0;
@@ -567,6 +572,20 @@ static void set_btune_cparams(blosc2_context * context, cparams_btune * cparams)
 // Tune some compression parameters based on the context
 void btune_next_cparams(blosc2_context *context) {
   btune_struct * btune = (btune_struct*) context->btune;
+
+  // Run inference only for the first chunk
+  int compcode;
+  uint8_t filter;
+  int nchunk = context->schunk->nchunks;
+  if (nchunk == 0) {
+    int error = btune_model_inference(context, &compcode, &filter);
+    if (error == 0) {
+      printf("*** Inference Chunk #%d codec=%d filter=%d\n", nchunk, compcode, filter);
+      btune->codecs->size = 1;
+      btune->codecs->list[0] = compcode;
+    }
+  }
+
   *btune->aux_cparams = *btune->best;
   cparams_btune * cparams = btune->aux_cparams;
 
