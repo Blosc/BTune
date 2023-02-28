@@ -27,10 +27,6 @@
 // Internal btune control behaviour constants.
 enum {
   BTUNE_KB = 1024,
-  MAX_CODECS = 8, // TODO remove when is included in blosc.h
-  NUM_FILTERS = 3, // nofilter, shuffle and bitshuffle
-  NUM_SPLITS = 2, // split and nosplit
-  NUM_FILTERS_SPLITS = 6, // NUM_FILTERS x NUM_SPLITS
   MAX_CLEVEL = 9,
   MIN_BLOCK = 16 * BTUNE_KB,  // TODO remove when included in blosc.h
   MAX_BLOCK = 2 * BTUNE_KB * BTUNE_KB,
@@ -47,45 +43,52 @@ static const cparams_btune cparams_btune_default = {
   BLOSC_LZ4, BLOSC_SHUFFLE, BLOSC_ALWAYS_SPLIT, 9, 0, 0, 0, 0, false, true, true, false, 100, 1.1, 100, 100
 };
 
-// Get the codecs list for btune
-static codec_list * btune_get_codecs(btune_struct * btune) {
-  const char * all_codecs = blosc2_list_compressors();
-  codec_list * codecs = malloc(sizeof(codec_list));
-  codecs->list = malloc(MAX_CODECS * sizeof(int));
-  int i = 0;
-  if (btune->config.comp_mode == BTUNE_COMP_HCR) {
-    // In HCR mode only try with ZSTD and ZLIB
-    if (strstr(all_codecs, "zstd") != NULL) {
-      codecs->list[i++] = BLOSC_ZSTD;
-    }
-    if (strstr(all_codecs, "zlib") != NULL) {
-      codecs->list[i++] = BLOSC_ZLIB;
-    }
-    // And disable LZ4HC as it compress typically less
-    // codecs->list[i++] = BLOSC_LZ4HC;
-  } else {
-    // In all other modes, LZ4 is mandatory
-    codecs->list[i++] = BLOSC_LZ4;
-    if (btune->config.comp_mode == BTUNE_COMP_BALANCED) {
-      // In BALANCE mode give BLOSCLZ a chance
-      codecs->list[i++] = BLOSC_BLOSCLZ;
-    }
-    if (btune->config.perf_mode == BTUNE_PERF_DECOMP) {
-      codecs->list[i++] = BLOSC_LZ4HC;
-    }
-  }
-  codecs->size = i;
-  return codecs;
-}
-
-static void add_codec(codec_list * codecs, int compcode) {
-  for (int i = 0; i < codecs->size; i++) {
-    if (codecs->list[i] == compcode) {
+static void add_codec(btune_struct * btune, int compcode) {
+  for (int i = 0; i < btune->ncodecs; i++) {
+    if (btune->codecs[i] == compcode) {
       return;
     }
   }
-  codecs->list[codecs->size] = compcode;
-  codecs->size++;
+  assert(btune->ncodecs < BTUNE_MAX_CODECS);
+  btune->codecs[btune->ncodecs] = compcode;
+  btune->ncodecs++;
+}
+
+static void add_filter(btune_struct * btune, uint8_t filter) {
+  for (int i = 0; i < btune->nfilters; i++) {
+    if (btune->filters[i] == filter) {
+      return;
+    }
+  }
+  assert(btune->nfilters < BTUNE_MAX_FILTERS);
+  btune->filters[btune->nfilters] = filter;
+  btune->nfilters++;
+}
+
+// Get the codecs list for btune
+static void btune_init_codecs(btune_struct * btune) {
+  const char * all_codecs = blosc2_list_compressors();
+  if (btune->config.comp_mode == BTUNE_COMP_HCR) {
+    // In HCR mode only try with ZSTD and ZLIB
+    if (strstr(all_codecs, "zstd") != NULL) {
+      add_codec(btune, BLOSC_ZSTD);
+    }
+    if (strstr(all_codecs, "zlib") != NULL) {
+      add_codec(btune, BLOSC_ZLIB);
+    }
+    // And disable LZ4HC as it compress typically less
+    // add_codec(btune, BLOSC_LZ4HC);
+  } else {
+    // In all other modes, LZ4 is mandatory
+    add_codec(btune, BLOSC_LZ4);
+    if (btune->config.comp_mode == BTUNE_COMP_BALANCED) {
+      // In BALANCE mode give BLOSCLZ a chance
+      add_codec(btune, BLOSC_BLOSCLZ);
+    }
+    if (btune->config.perf_mode == BTUNE_PERF_DECOMP) {
+      add_codec(btune, BLOSC_LZ4HC);
+    }
+  }
 }
 
 // Extract the cparams_btune inside blosc2_context
@@ -325,7 +328,12 @@ void btune_init(void * cfg, blosc2_context * cctx, blosc2_context * dctx) {
   }
 
   btune->dctx = dctx;
-  btune->codecs = btune_get_codecs(btune);
+
+  // Initlialize codescs and filters
+  btune_init_codecs(btune);
+  add_filter(btune, BLOSC_NOFILTER);
+  add_filter(btune, BLOSC_SHUFFLE);
+  add_filter(btune, BLOSC_BITSHUFFLE);
 
   // State attributes
   btune->rep_index = 0;
@@ -344,8 +352,8 @@ void btune_init(void * cfg, blosc2_context * cctx, blosc2_context * dctx) {
   cparams_btune * aux = malloc(sizeof(cparams_btune));
   *aux = cparams_btune_default;
   btune->aux_cparams = aux;
-  best->compcode = btune->codecs->list[0];
-  aux->compcode = btune->codecs->list[0];
+  best->compcode = btune->codecs[0];
+  aux->compcode = btune->codecs[0];
   if (btune->config.comp_mode == BTUNE_COMP_HCR) {
     best->clevel = 8;
     aux->clevel = 8;
@@ -380,7 +388,7 @@ void btune_init(void * cfg, blosc2_context * cctx, blosc2_context * dctx) {
   if (config->cparams_hint) {
     extract_btune_cparams(cctx, btune->best);
     extract_btune_cparams(cctx, btune->aux_cparams);
-    add_codec(btune->codecs, cctx->compcode);
+    add_codec(btune, cctx->compcode);
     if (btune->config.behaviour.nhards_before_stop > 0) {
       if (btune->config.behaviour.nsofts_before_hard > 0){
         init_soft(btune);
@@ -407,8 +415,6 @@ void btune_init(void * cfg, blosc2_context * cctx, blosc2_context * dctx) {
 // Free btune_struct
 void btune_free(blosc2_context * context) {
   btune_struct * btune = context->btune;
-  free(btune->codecs->list);
-  free(btune->codecs);
   free(btune->best);
   free(btune->aux_cparams);
   free(btune->current_scores);
@@ -579,8 +585,10 @@ void btune_next_cparams(blosc2_context *context) {
     int error = btune_model_inference(context, &compcode, &filter);
     if (error == 0) {
       printf("*** Inference Chunk #%d codec=%d filter=%d\n", nchunk, compcode, filter);
-      btune->codecs->size = 1;
-      btune->codecs->list[0] = compcode;
+      btune->codecs[0] = compcode;
+      btune->ncodecs = 1;
+      btune->filters[0] = filter;
+      btune->nfilters = 1;
     }
   }
 
@@ -591,26 +599,21 @@ void btune_next_cparams(blosc2_context *context) {
 
     // Tune codec and filter
     case CODEC_FILTER:
-      int codec_index = btune->aux_index / NUM_FILTERS_SPLITS;
-      int compcode = btune->codecs->list[codec_index];
-      // Cycle filters every time
-      uint8_t filter = (uint8_t) (btune->aux_index % NUM_FILTERS);
-      // Cycle split every two filters
-      int splitmode = ((btune->aux_index % NUM_FILTERS_SPLITS) / NUM_FILTERS) + 1;
-      if (compcode == BLOSC_BLOSCLZ) {
-          // BLOSCLZ is not designed to compress well in non-split mode, so disable it always
-          splitmode = BLOSC_ALWAYS_SPLIT;
-      }
+      // Cycle codecs, filters and splits
+      int n_filters_splits = btune->nfilters * 2;
+      cparams->compcode = btune->codecs[btune->aux_index / n_filters_splits];
+      cparams->filter = btune->filters[(btune->aux_index % n_filters_splits) / 2];
+      cparams->splitmode = (btune->aux_index % 2) + 1;
+
       // The first tuning of ZSTD in some modes should start in clevel 3
-      if (((btune->config.perf_mode == BTUNE_PERF_COMP) ||
-           (btune->config.perf_mode == BTUNE_PERF_BALANCED)) &&
-          (compcode == BLOSC_ZSTD || cparams->compcode == BLOSC_ZLIB) &&
-          (btune->nhards == 0)) {
+      btune_performance_mode perf_mode = btune->config.perf_mode;
+      if (
+        (perf_mode == BTUNE_PERF_COMP || perf_mode == BTUNE_PERF_BALANCED) &&
+        (cparams->compcode == BLOSC_ZSTD || cparams->compcode == BLOSC_ZLIB) &&
+        (btune->nhards == 0)
+      ) {
         cparams->clevel = 3;
       }
-      cparams->compcode = compcode;
-      cparams->filter = filter;
-      cparams->splitmode = splitmode;
       // Force auto blocksize
       // cparams->blocksize = 0;
       btune->aux_index++;
@@ -896,18 +899,13 @@ static void update_aux(blosc2_context * ctx, bool improved) {
   switch (btune->state) {
     case CODEC_FILTER:
       // Reached last combination of codec filter
-      if ((btune->aux_index / NUM_FILTERS_SPLITS) == btune->codecs->size) {
+      if (btune->aux_index >= (btune->ncodecs *  btune->nfilters * 2)) {
         btune->aux_index = 0;
 
         int32_t shufflesize = best->shufflesize;
         // Is shufflesize valid or not
         if (BTUNE_DISABLE_SHUFFLESIZE) {
-          if (!BTUNE_DISABLE_THREADS) {
-            btune->state = THREADS;
-          }
-          else {
-            btune->state = CLEVEL;
-          }
+          btune->state = (BTUNE_DISABLE_THREADS) ? CLEVEL : THREADS;
         } else {
           bool is_power_2 = (shufflesize & (shufflesize - 1)) == 0;
           btune->state = (best->filter && is_power_2) ? SHUFFLE_SIZE : THREADS;

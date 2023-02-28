@@ -21,11 +21,14 @@
 
 // The size of L1 cache.  32 KB is quite common nowadays.
 #define L1 (32 * 1024)
-/* Version numbers */
+// Version numbers
 #define BTUNE_VERSION_MAJOR    1    /* for major interface/format changes  */
 #define BTUNE_VERSION_MINOR    0    /* for minor interface/format changes  */
 #define BTUNE_VERSION_RELEASE  0    /* for tweaks, bug-fixes, or development */
 #define BTUNE_VERSION_STRING "1.0.0"
+// Maximum number of codecs
+#define BTUNE_MAX_CODECS 8
+#define BTUNE_MAX_FILTERS 3
 
 #define BTUNE_DEBUG(msg, ...) \
     do { \
@@ -182,12 +185,6 @@ typedef enum {
     HARD,
 } readapt_type;
 
-// Internal BTune codec list
-typedef struct {
-    int * list;
-    int size;
-} codec_list;
-
 // Internal BTune compression parameters
 typedef struct {
     int compcode;
@@ -228,8 +225,14 @@ typedef struct {
 typedef struct {
   btune_config config;
   // The BTune config
-  codec_list * codecs;
+  int codecs[BTUNE_MAX_CODECS];
   // The codec list used by BTune
+  uint8_t ncodecs;
+  // Number of codecs used by BTune
+  uint8_t filters[BTUNE_MAX_FILTERS];
+  // The filter list used by BTune
+  uint8_t nfilters;
+  // Number of filters used by BTune
   cparams_btune * best;
   // The best cparams optained with BTune
   cparams_btune * aux_cparams;
