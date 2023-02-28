@@ -30,6 +30,7 @@ enum {
   MAX_CODECS = 8, // TODO remove when is included in blosc.h
   NUM_FILTERS = 3, // nofilter, shuffle and bitshuffle
   NUM_SPLITS = 2, // split and nosplit
+  NUM_FILTERS_SPLITS = 6, // NUM_FILTERS x NUM_SPLITS
   MAX_CLEVEL = 9,
   MIN_BLOCK = 16 * BTUNE_KB,  // TODO remove when included in blosc.h
   MAX_BLOCK = 2 * BTUNE_KB * BTUNE_KB,
@@ -328,8 +329,6 @@ void btune_init(void * cfg, blosc2_context * cctx, blosc2_context * dctx) {
 
   // State attributes
   btune->rep_index = 0;
-  // We want to iterate 3x per filter (NOSHUFFLE/SHUFFLE/BITSHUFFLE) and 2x per split/nonsplit
-  btune->filter_split_limit = NUM_FILTERS * NUM_SPLITS;
   btune->aux_index = 0;
   btune->steps_count = 0;
   btune->nsofts = 0;
@@ -592,13 +591,12 @@ void btune_next_cparams(blosc2_context *context) {
 
     // Tune codec and filter
     case CODEC_FILTER:
-      int codec_index = btune->aux_index / btune->filter_split_limit;
+      int codec_index = btune->aux_index / NUM_FILTERS_SPLITS;
       int compcode = btune->codecs->list[codec_index];
-      int filter_split = btune->filter_split_limit;
       // Cycle filters every time
-      uint8_t filter = (uint8_t) (btune->aux_index % (filter_split / 2));
+      uint8_t filter = (uint8_t) (btune->aux_index % NUM_FILTERS);
       // Cycle split every two filters
-      int splitmode = ((btune->aux_index % filter_split) / 3) + 1;
+      int splitmode = ((btune->aux_index % NUM_FILTERS_SPLITS) / NUM_FILTERS) + 1;
       if (compcode == BLOSC_BLOSCLZ) {
           // BLOSCLZ is not designed to compress well in non-split mode, so disable it always
           splitmode = BLOSC_ALWAYS_SPLIT;
@@ -898,7 +896,7 @@ static void update_aux(blosc2_context * ctx, bool improved) {
   switch (btune->state) {
     case CODEC_FILTER:
       // Reached last combination of codec filter
-      if ((btune->aux_index / btune->filter_split_limit) == btune->codecs->size) {
+      if ((btune->aux_index / NUM_FILTERS_SPLITS) == btune->codecs->size) {
         btune->aux_index = 0;
 
         int32_t shufflesize = best->shufflesize;

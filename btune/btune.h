@@ -240,9 +240,6 @@ typedef struct {
   // The aux array of cratios to calculate the mean
   int rep_index;
   // The aux index for the repetitions
-  int filter_split_limit;
-  /* The limit of filter/split combinations for CODEC_FILTER,
-   * also helps determining the codec and filter based on aux_index */
   int aux_index;
   // The auxiliar index for state management
   int steps_count;
