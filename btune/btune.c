@@ -30,7 +30,6 @@ enum {
   MAX_CODECS = 8, // TODO remove when is included in blosc.h
   NUM_FILTERS = 3, // nofilter, shuffle and bitshuffle
   NUM_SPLITS = 2, // split and nosplit
-  REPEATS_PER_CPARAMS = 1,  // number of repetitions to compute time averages
   MAX_CLEVEL = 9,
   MIN_BLOCK = 16 * BTUNE_KB,  // TODO remove when included in blosc.h
   MAX_BLOCK = 2 * BTUNE_KB * BTUNE_KB,
@@ -330,7 +329,7 @@ void btune_init(void * cfg, blosc2_context * cctx, blosc2_context * dctx) {
   // State attributes
   btune->rep_index = 0;
   // We want to iterate 3x per filter (NOSHUFFLE/SHUFFLE/BITSHUFFLE) and 2x per split/nonsplit
-  btune->filter_split_limit = NUM_FILTERS * NUM_SPLITS * REPEATS_PER_CPARAMS;
+  btune->filter_split_limit = NUM_FILTERS * NUM_SPLITS;
   btune->aux_index = 0;
   btune->steps_count = 0;
   btune->nsofts = 0;
@@ -369,8 +368,8 @@ void btune_init(void * cfg, blosc2_context * cctx, blosc2_context * dctx) {
   }
 
   // Aux arrays to calculate the mean
-  btune->current_cratios = malloc(sizeof(double) * REPEATS_PER_CPARAMS) ;
-  btune->current_scores = malloc(sizeof(double) * REPEATS_PER_CPARAMS);
+  btune->current_cratios = malloc(sizeof(double)) ;
+  btune->current_scores = malloc(sizeof(double));
 
   if (btune->config.perf_mode == BTUNE_PERF_DECOMP) {
     btune->threads_for_comp = false;
@@ -597,9 +596,9 @@ void btune_next_cparams(blosc2_context *context) {
       int compcode = btune->codecs->list[codec_index];
       int filter_split = btune->filter_split_limit;
       // Cycle filters every time
-      uint8_t filter = (uint8_t) ((btune->aux_index % (filter_split / 2)) / REPEATS_PER_CPARAMS);
+      uint8_t filter = (uint8_t) (btune->aux_index % (filter_split / 2));
       // Cycle split every two filters
-      int splitmode = (((btune->aux_index % filter_split) / 3) + 1) / REPEATS_PER_CPARAMS;
+      int splitmode = ((btune->aux_index % filter_split) / 3) + 1;
       if (compcode == BLOSC_BLOSCLZ) {
           // BLOSCLZ is not designed to compress well in non-split mode, so disable it always
           splitmode = BLOSC_ALWAYS_SPLIT;
@@ -895,7 +894,7 @@ static void process_waiting_state(blosc2_context * ctx) {
 static void update_aux(blosc2_context * ctx, bool improved) {
   btune_struct * btune = ctx->btune;
   cparams_btune * best = btune->best;
-  bool first_time = btune->aux_index == REPEATS_PER_CPARAMS;
+  bool first_time = btune->aux_index == 1;
   switch (btune->state) {
     case CODEC_FILTER:
       // Reached last combination of codec filter
@@ -963,7 +962,7 @@ static void update_aux(blosc2_context * ctx, bool improved) {
       break;
 
     case THREADS:
-      first_time = (btune->aux_index % MAX_STATE_THREADS) == REPEATS_PER_CPARAMS;
+      first_time = (btune->aux_index % MAX_STATE_THREADS) == 1;
       if (!improved && first_time) {
         best->increasing_nthreads = !best->increasing_nthreads;
       }
@@ -1101,9 +1100,9 @@ void btune_update(blosc2_context * context, double ctime) {
   btune->current_scores[btune->rep_index] = score;
   btune->current_cratios[btune->rep_index] = cratio;
   btune->rep_index++;
-  if (btune->rep_index == REPEATS_PER_CPARAMS) {
-    score = mean(btune->current_scores, REPEATS_PER_CPARAMS);
-    cratio = mean(btune->current_cratios, REPEATS_PER_CPARAMS);
+  if (btune->rep_index == 1) {
+    score = mean(btune->current_scores, 1);
+    cratio = mean(btune->current_cratios, 1);
     double cratio_coef = cratio / btune->best->cratio;
     double score_coef = btune->best->score / score;
     bool improved;
