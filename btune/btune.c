@@ -40,7 +40,22 @@ enum {
 };
 
 static const cparams_btune cparams_btune_default = {
-  BLOSC_LZ4, BLOSC_SHUFFLE, BLOSC_ALWAYS_SPLIT, 9, 0, 0, 0, 0, false, true, true, false, 100, 1.1, 100, 100
+  .compcode = BLOSC_LZ4,
+  .filter = BLOSC_SHUFFLE,
+  .splitmode = BLOSC_ALWAYS_SPLIT,
+  .clevel = 9,
+  .blocksize = 0,
+  .shufflesize = 0,
+  .nthreads_comp = 0,
+  .nthreads_decomp = 0,
+  .increasing_clevel = false,
+  .increasing_block = true,
+  .increasing_shuffle = true,
+  .increasing_nthreads = false,
+  .score = 100,
+  .cratio = 1.0,
+  .ctime = 100,
+  .dtime = 100
 };
 
 static void add_codec(btune_struct * btune, int compcode) {
@@ -323,8 +338,6 @@ void btune_init(void * cfg, blosc2_context * cctx, blosc2_context * dctx) {
            btune->config.behaviour.nsofts_before_hard,
            btune->config.behaviour.nhards_before_stop,
            repeat_mode_to_str(btune->config.behaviour.repeat_mode));
-    printf("|    Codec   | Filter | Split | C.Level | Blocksize | Shufflesize | C.Threads | D.Threads |   Score   |  C.Ratio   |"
-           "   BTune State   | Readapt | Winner\n");
   }
 
   btune->dctx = dctx;
@@ -584,11 +597,16 @@ void btune_next_cparams(blosc2_context *context) {
   if (nchunk == 0) {
     int error = btune_model_inference(context, &compcode, &filter);
     if (error == 0) {
-      printf("*** Inference Chunk #%d codec=%d filter=%d\n", nchunk, compcode, filter);
+      printf("Inference: chunk=%d codec=%d filter=%d\n", nchunk, compcode, filter);
       btune->codecs[0] = compcode;
       btune->ncodecs = 1;
       btune->filters[0] = filter;
       btune->nfilters = 1;
+    }
+
+    if (getenv("BTUNE_LOG")) {
+        printf("|    Codec   | Filter | Split | C.Level | Blocksize | Shufflesize | C.Threads | D.Threads |"
+               "   Score   |  C.Ratio   |   BTune State   | Readapt | Winner\n");
     }
   }
 
