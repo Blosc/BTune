@@ -26,6 +26,17 @@ typedef struct {
     float max;
 } norm_t;
 
+typedef struct {
+    uint8_t codec;
+    uint8_t filter;
+} category_t;
+
+typedef struct {
+    norm_t cratio;
+    norm_t cspeed;
+    category_t categories[30]; // TODO Make this dynamic with malloc/free
+} metadata_t;
+
 
 static int fsize(FILE *file) {
     fseek(file, 0, SEEK_END);
@@ -85,19 +96,17 @@ static int get_best_codec_for_chunk(
     const void *src,
     size_t size,
     tflite::Interpreter *interpreter,
-    norm_t *cratio_norm,
-    norm_t *cspeed_norm
+    metadata_t *metadata
 )
 {
-    // Read from metadata.json
-    float cratio_mean = cratio_norm->mean;
-    float cratio_std = cratio_norm->std;
-    float cratio_min = cratio_norm->min;
-    float cratio_max = cratio_norm->max;
-    float cspeed_mean = cspeed_norm->mean;
-    float cspeed_std = cspeed_norm->std;
-    float cspeed_min = cspeed_norm->min;
-    float cspeed_max = cspeed_norm->max;
+    float cratio_mean = metadata->cratio.mean;
+    float cratio_std = metadata->cratio.std;
+    float cratio_min = metadata->cratio.min;
+    float cratio_max = metadata->cratio.max;
+    float cspeed_mean = metadata->cspeed.mean;
+    float cspeed_std = metadata->cspeed.std;
+    float cspeed_min = metadata->cspeed.min;
+    float cspeed_max = metadata->cspeed.max;
 
     // cparams
     blosc2_cparams cparams = BLOSC2_CPARAMS_DEFAULTS;
@@ -175,7 +184,7 @@ static int read_dict(json_value *json, norm_t *norm)
     return 0;
 }
 
-static int read_metadata(const char *fname, norm_t *cratio, norm_t *cspeed)
+static int read_metadata(const char *fname, metadata_t *metadata)
 {
     FILE* file = fopen(fname, "rt");
     if (file == NULL) {
@@ -194,10 +203,19 @@ static int read_metadata(const char *fname, norm_t *cratio, norm_t *cspeed)
         const char *name = json->u.object.values[i].name;
         json_value *value = json->u.object.values[i].value;
         if (strcmp(name, "cratio") == 0) {
-            read_dict(value, cratio);
+            read_dict(value, &metadata->cratio);
         }
         else if (strcmp(name, "speed") == 0) {
-            read_dict(value, cspeed);
+            read_dict(value, &metadata->cspeed);
+        }
+        else if (strcmp(name, "categories") == 0) {
+            for (int i = 0; i < value->u.array.length; i++) {
+                json_value *cat = value->u.array.values[i];
+                json_value *codec = cat->u.array.values[0];
+                json_value *filter = cat->u.array.values[1];
+                metadata->categories[i].codec = codec->u.integer;
+                metadata->categories[i].filter = filter->u.integer;
+            }
         }
     }
 
@@ -208,8 +226,7 @@ static int read_metadata(const char *fname, norm_t *cratio, norm_t *cspeed)
 
 int btune_model_inference(blosc2_context * ctx, int * compcode, uint8_t * filter)
 {
-    norm_t cratio_norm;
-    norm_t cspeed_norm;
+    metadata_t metadata;
 
     // Read metadata
     char * fname = getenv("BTUNE_METADATA");
@@ -217,7 +234,7 @@ int btune_model_inference(blosc2_context * ctx, int * compcode, uint8_t * filter
         BTUNE_DEBUG("Environment variable BTUNE_METADATA is not defined");
         return -1;
     }
-    int error = read_metadata(fname, &cratio_norm, &cspeed_norm);
+    int error = read_metadata(fname, &metadata);
     if (error) {
         return -1;
     }
@@ -252,96 +269,15 @@ int btune_model_inference(blosc2_context * ctx, int * compcode, uint8_t * filter
 
     const void *src = (const void*)ctx->src;
     int32_t size = ctx->srcsize;
-    int best = get_best_codec_for_chunk(ctx->schunk, src, size, interpreter.get(), &cratio_norm, &cspeed_norm);
+    int best = get_best_codec_for_chunk(ctx->schunk, src, size, interpreter.get(), &metadata);
     if (best < 0) {
         return best;
     }
 
-    // FIXME This should not be hardcoded, probably the info should be defined
-    // in the metadata
-    // 0: blosclz-nofilter-nosplit
-    // 1: lz4-nofilter-nosplit
-    // 2: lz4hc-nofilter-nosplit
-    // 3: zlib-nofilter-nosplit
-    // 4: zstd-nofilter-nosplit
-    // 5: blosclz-shuffle-nosplit
-    // 6: lz4-shuffle-nosplit
-    // 7: lz4hc-shuffle-nosplit
-    // 8: zlib-shuffle-nosplit
-    // 9: zstd-shuffle-nosplit
-    // 10: blosclz-bitshuffle-nosplit
-    // 11: lz4-bitshuffle-nosplit
-    // 12: lz4hc-bitshuffle-nosplit
-    // 13: zlib-bitshuffle-nosplit
-    // 14: zstd-bitshuffle-nosplit
-    switch (best) {
-        case 0:
-            *compcode = BLOSC_BLOSCLZ;
-            *filter = BLOSC_NOFILTER;
-            break;
-        case 1:
-            *compcode = BLOSC_LZ4;
-            *filter = BLOSC_NOFILTER;
-            break;
-        case 2:
-            *compcode = BLOSC_LZ4HC;
-            *filter = BLOSC_NOFILTER;
-            break;
-        case 3:
-            *compcode = BLOSC_ZLIB;
-            *filter = BLOSC_NOFILTER;
-            break;
-        case 4:
-            *compcode = BLOSC_ZSTD;
-            *filter = BLOSC_NOFILTER;
-            break;
-        case 5:
-            *compcode = BLOSC_BLOSCLZ;
-            *filter = BLOSC_SHUFFLE;
-            break;
-        case 6:
-            *compcode = BLOSC_LZ4;
-            *filter = BLOSC_SHUFFLE;
-            break;
-        case 7:
-            *compcode = BLOSC_LZ4HC;
-            *filter = BLOSC_SHUFFLE;
-            break;
-        case 8:
-            *compcode = BLOSC_ZLIB;
-            *filter = BLOSC_SHUFFLE;
-            break;
-        case 9:
-            *compcode = BLOSC_ZSTD;
-            *filter = BLOSC_SHUFFLE;
-            break;
-        case 10:
-            *compcode = BLOSC_BLOSCLZ;
-            *filter = BLOSC_BITSHUFFLE;
-            break;
-        case 11:
-            *compcode = BLOSC_LZ4;
-            *filter = BLOSC_BITSHUFFLE;
-            break;
-        case 12:
-            *compcode = BLOSC_LZ4HC;
-            *filter = BLOSC_BITSHUFFLE;
-            break;
-        case 13:
-            *compcode = BLOSC_ZLIB;
-            *filter = BLOSC_BITSHUFFLE;
-            break;
-        case 14:
-            *compcode = BLOSC_ZSTD;
-            *filter = BLOSC_BITSHUFFLE;
-            break;
-        default:
-            *compcode = -1;
-    }
-
-    if ((*compcode) < 0) {
-        return -1;
-    }
+    // Return compcode and filter
+    category_t cat = metadata.categories[best];
+    *compcode = cat.codec;
+    *filter = cat.filter;
 
     return 0;
 }
