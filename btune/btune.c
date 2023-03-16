@@ -606,7 +606,8 @@ void btune_next_cparams(blosc2_context *context) {
   uint8_t filter;
   int nchunk = context->schunk->nchunks;
   if (nchunk == 0) {
-    int error = btune_model_inference(context, &compcode, &filter);
+    btune_comp_mode comp_mode = btune->config.comp_mode;
+    int error = btune_model_inference(context, comp_mode, &compcode, &filter);
     if (error == 0) {
       printf("Inference: chunk=%d codec=%d filter=%d\n", nchunk, compcode, filter);
       btune->codecs[0] = compcode;

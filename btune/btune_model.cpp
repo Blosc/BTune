@@ -224,7 +224,7 @@ static int read_metadata(const char *fname, metadata_t *metadata)
     return 0;
 }
 
-int btune_model_inference(blosc2_context * ctx, int * compcode, uint8_t * filter)
+int btune_model_inference(blosc2_context * ctx, btune_comp_mode btune_comp, int * compcode, uint8_t * filter)
 {
     metadata_t metadata;
 
@@ -240,9 +240,21 @@ int btune_model_inference(blosc2_context * ctx, int * compcode, uint8_t * filter
     }
 
     // Load model
-    fname = getenv("BTUNE_MODEL");
+    switch (btune_comp) {
+        case BTUNE_COMP_BALANCED:
+            fname = getenv("BTUNE_MODEL_BALANCED");
+            break;
+        case BTUNE_COMP_HCR:
+            fname = getenv("BTUNE_MODEL_HCR");
+            break;
+        case BTUNE_COMP_HSP:
+            fname = getenv("BTUNE_MODEL_HSP");
+            break;
+        default:
+            fname = NULL;
+    }
     if (fname == NULL) {
-        BTUNE_DEBUG("Environment variable BTUNE_MODEL is not defined");
+        BTUNE_DEBUG("Environment variable BTUNE_MODEL_XXX is not defined");
         return -1;
     }
     std::unique_ptr<tflite::FlatBufferModel> model = tflite::FlatBufferModel::BuildFromFile(fname);
