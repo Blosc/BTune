@@ -37,6 +37,8 @@
          fprintf(stderr, "[DEBUG] " msg "\n", ##__VA_ARGS__); \
        } while(0)
 
+#define BTUNE_ID 1
+
 /**
  * @brief BTune units enumeration.
  *

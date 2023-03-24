@@ -3,7 +3,7 @@
 #include <tensorflow/lite/model.h>
 #include <tensorflow/lite/optional_debug_tools.h>
 
-#include <blosc2.h>
+#include "blosc2.h"
 #include <context.h>
 #include "blosc2_entropy_prober.h"
 #include "btune.h"

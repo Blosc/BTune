@@ -13,7 +13,7 @@
 #include <string.h>
 #include <assert.h>
 
-#include <blosc2/filters-registry.h>
+#include "blosc2/filters-registry.h"
 #include "btune.h"
 #include "btune_model.h"
 

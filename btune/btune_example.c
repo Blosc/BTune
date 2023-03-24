@@ -1,4 +1,4 @@
-#include "btune/btune.h"
+#include "btune.h"
 
 #define KB  1024.
 #define MB  (1024*KB)
@@ -52,13 +52,15 @@ int main(int argc, char* argv[])
     btune_config btune_config = BTUNE_CONFIG_DEFAULTS;
     //btune_config.comp_mode = BTUNE_COMP_HCR;
     //btune_config.behaviour.repeat_mode = BTUNE_REPEAT_ALL;
-    btune->btune_config = &btune_config;
     btune->btune_init = btune_init;
     btune->btune_next_blocksize = btune_next_blocksize;
     btune->btune_next_cparams = btune_next_cparams;
     btune->btune_update = btune_update;
     btune->btune_free = btune_free;
-    cparams.udbtune = btune;
+    btune->id = BTUNE_ID;
+    btune->name = "btune";
+    cparams.btune_id = BTUNE_ID;
+    cparams.btune_params = &btune_config;
 
     // Create super chunk
     remove(out_fname);
