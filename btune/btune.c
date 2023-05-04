@@ -18,9 +18,8 @@
 #include "btune_model.h"
 
 
-// Disable shufflesize and blocksize
+// Disable different states
 #define BTUNE_DISABLE_SHUFFLESIZE  true
-#define BTUNE_DISABLE_BLOCKSIZE    true
 #define BTUNE_DISABLE_MEMCPY       true
 #define BTUNE_DISABLE_THREADS      true
 
@@ -152,17 +151,6 @@ static bool has_ended_threads(btune_struct *btune_params) {
           (!best->increasing_nthreads && (nthreads == MIN_THREADS)));
 }
 
-// Check if btune can still modify the blocksize or has to change the direction
-static bool has_ended_blocksize(blosc2_context *ctx){
-  btune_struct *btune_params = (btune_struct*) ctx->btune_params;
-  cparams_btune *best = btune_params->best;
-  return ((best->increasing_block &&
-           ((best->blocksize > (MAX_BLOCK >> btune_params->step_size)) ||
-            (best->blocksize > (ctx->sourcesize >> btune_params->step_size)))) ||
-          (!best->increasing_block &&
-           (best->blocksize < (MIN_BLOCK << btune_params->step_size))));
-}
-
 // Init a soft readapt
 static void init_soft(btune_struct *btune_params) {
   if (has_ended_clevel(btune_params)) {
@@ -235,8 +223,6 @@ static const char* stcode_to_stname(btune_struct *btune_params) {
       return "SHUFFLE_SIZE";
     case CLEVEL:
       return "CLEVEL";
-    case BLOCKSIZE:
-      return "BLOCKSIZE";
     case MEMCPY:
       return "MEMCPY";
     case WAITING:
@@ -311,13 +297,6 @@ static const char* repeat_mode_to_str(btune_repeat_mode repeat_mode) {
       return "UNKNOWN";
   }
 }
-
-
-
-
-
-
-
 
 
 // Init btune_struct inside blosc2_context
@@ -443,124 +422,6 @@ void btune_free(blosc2_context *context) {
   free(btune_params->current_cratios);
   free(btune_params);
   context->btune_params = NULL;
-}
-
-/* Whether a codec is meant for High Compression Ratios
-   Includes LZ4 + BITSHUFFLE here, but not BloscLZ + BITSHUFFLE because,
-   for some reason, the latter does not work too well */
-static bool is_HCR(blosc2_context *context) {
-  switch (context->compcode) {
-    case BLOSC_BLOSCLZ :
-      return false;
-    case BLOSC_LZ4 :
-      return (context->filter_flags & BLOSC_DOBITSHUFFLE) ? true : false;
-    case BLOSC_LZ4HC :
-      return true;
-    case BLOSC_ZLIB :
-      return true;
-    case BLOSC_ZSTD :
-      return true;
-    default :
-      fprintf(stderr, "Error in is_COMP_HCR: codec %d not handled\n",
-              context->compcode);
-  }
-  return false;
-}
-
-// Set the automatic blocksize 0 to its real value
-void btune_next_blocksize(blosc2_context *context) {
-  if (BTUNE_DISABLE_BLOCKSIZE) {
-    return;
-  }
-  int32_t clevel = context->clevel;
-  int32_t typesize = context->typesize;
-  size_t nbytes = context->sourcesize;
-  int32_t user_blocksize = context->blocksize;
-  int32_t blocksize = (int32_t) nbytes;
-
-  // Protection against very small buffers
-  if (nbytes < typesize) {
-    context->blocksize = 1;
-    return;
-  }
-
-  if (user_blocksize) {
-    blocksize = user_blocksize;
-    // Check that forced blocksize is not too small
-    if (blocksize < BLOSC_MIN_BUFFERSIZE) {
-      blocksize = BLOSC_MIN_BUFFERSIZE;
-    }
-  }
-  else if (nbytes >= L1) {
-    blocksize = L1;
-
-    /* For HCR codecs, increase the block sizes by a factor of 2 because they
-        are meant for compressing large blocks (i.e. they show a big overhead
-        when compressing small ones). */
-    if (is_HCR(context)) {
-      blocksize *= 2;
-    }
-
-    // Choose a different blocksize depending on the compression level
-    switch (clevel) {
-      case 0:
-        // Case of plain copy
-        blocksize /= 4;
-        break;
-      case 1:
-        blocksize /= 2;
-        break;
-      case 2:
-        blocksize *= 1;
-        break;
-      case 3:
-        blocksize *= 2;
-        break;
-      case 4:
-      case 5:
-        blocksize *= 4;
-        break;
-      case 6:
-      case 7:
-      case 8:
-        blocksize *= 8;
-        break;
-      case 9:
-        // Do not exceed 256 KB for non HCR codecs
-        blocksize *= 8;
-        if (is_HCR(context)) {
-          blocksize *= 2;
-        }
-        break;
-      default:
-        break;
-    }
-  }
-
-  /* Enlarge the blocksize */
-  if (clevel > 0) {
-    if (blocksize > (1 << 16)) {
-      /* Do not use a too large buffer (64 KB) for splitting codecs */
-      blocksize = (1 << 16);
-    }
-    blocksize *= typesize;
-    if (blocksize < (1 << 16)) {
-      /* Do not use a too small blocksize (< 64 KB) when typesize is small */
-      blocksize = (1 << 16);
-    }
-  }
-
-  /* Check that blocksize is not too large */
-  if (blocksize > (int32_t)nbytes) {
-    blocksize = (int32_t)nbytes;
-  }
-
-  // blocksize *must absolutely* be a multiple of the typesize
-  if (blocksize > typesize) {
-    blocksize = (int32_t) (blocksize / typesize * typesize);
-  }
-
-  context->blocksize = blocksize;
 }
 
 // Set the cparams_btune inside blosc2_context
@@ -711,26 +572,6 @@ void btune_next_cparams(blosc2_context *context) {
       } else {
         if (cparams->clevel > btune_params->step_size) {
           cparams->clevel -= btune_params->step_size;
-        }
-      }
-      break;
-
-      // Tune block size
-    case BLOCKSIZE:
-      btune_params->aux_index++;
-      if (BTUNE_DISABLE_BLOCKSIZE) {
-        break;
-      }
-      int step_factor = btune_params->step_size - 1;
-      if (cparams->increasing_block) {
-        int32_t new_block = cparams->blocksize * 1 << btune_params->step_size;
-        if ((cparams->blocksize <= (MAX_BLOCK >> step_factor)) &&
-            (new_block <= context->sourcesize)) {
-          cparams->blocksize = new_block;
-        }
-      } else {
-        if (cparams->blocksize >= (MIN_BLOCK << step_factor)) {
-          cparams->blocksize >>= btune_params->step_size;
         }
       }
       break;
@@ -1011,7 +852,7 @@ static void update_aux(blosc2_context * ctx, bool improved) {
               best->increasing_nthreads = !best->increasing_nthreads;
             }
           }
-          // No BALANCED mark to end
+        // No BALANCED mark to end
         } else {
           btune_params->aux_index = MAX_STATE_THREADS + 1;
         }
@@ -1033,38 +874,10 @@ static void update_aux(blosc2_context * ctx, bool improved) {
       // Can not change parameter or is not improving
       if (has_ended_clevel(btune_params) || (!improved && !first_time)) {
         btune_params->aux_index = 0;
-        if (!BTUNE_DISABLE_BLOCKSIZE) {
-          btune_params->state = BLOCKSIZE;
+        if (!BTUNE_DISABLE_MEMCPY) {
+          btune_params->state = MEMCPY;
         }
         else {
-          if (!BTUNE_DISABLE_MEMCPY) {
-            btune_params->state = MEMCPY;
-          }
-          else {
-            btune_params->state = WAITING;
-          }
-        }
-        if (has_ended_blocksize(ctx)) {
-          best->increasing_block = !best->increasing_block;
-        }
-      }
-      break;
-
-    case BLOCKSIZE:
-      if (!improved && first_time) {
-        best->increasing_block = !best->increasing_block;
-      }
-      // Can not change parameter or is not improving
-      if (has_ended_blocksize(ctx) || (!improved && !first_time)) {
-        btune_params->aux_index = 0;
-        if (btune_params->config.comp_mode == BTUNE_COMP_HSP) {
-          if (!BTUNE_DISABLE_MEMCPY) {
-            btune_params->state = MEMCPY;
-          }
-          else {
-            btune_params->state = WAITING;
-          }
-        } else {
           btune_params->state = WAITING;
         }
       }
